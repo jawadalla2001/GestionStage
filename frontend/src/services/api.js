@@ -415,14 +415,24 @@ export const submissionService = {
       
       // Step 4: Create Periode (period) - OPTIONAL, continue if this fails
       try {
-        // Enhanced date parsing specifically for format "YYYY-MM-DD - YYYY-MM-DD"
+        // Check for dateDebut and dateFin fields first (new format)
         const today = new Date().toISOString().split('T')[0]; // Default to today
         let dateDebut = today;
         let dateFin = today;
         
-        console.log('Original period input:', formData.period);
-        
-        if (formData.period && formData.period.trim() !== '') {
+        // First try to use direct date fields if available
+        if (formData.dateDebut && formData.dateFin) {
+          console.log('Using direct date fields from form:');
+          console.log('Date début:', formData.dateDebut);
+          console.log('Date fin:', formData.dateFin);
+          
+          dateDebut = formData.dateDebut;
+          dateFin = formData.dateFin;
+        }
+        // Fall back to period string parsing for backward compatibility
+        else if (formData.period && formData.period.trim() !== '') {
+          console.log('Falling back to period string parsing. Original period input:', formData.period);
+          
           // Split the period string by the separator " - "
           const periodParts = formData.period.trim().split(' - ');
           

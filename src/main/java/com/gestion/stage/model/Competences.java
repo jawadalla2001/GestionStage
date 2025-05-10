@@ -2,6 +2,8 @@ package com.gestion.stage.model;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -26,5 +28,6 @@ public class Competences {
     private Double note;
 
     @OneToMany(mappedBy = "competences")
+    @JsonIgnore
     private List<Evaluation> evaluations;
 }

@@ -2,6 +2,8 @@ package com.gestion.stage.model;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -31,5 +33,6 @@ public class Appreciation {
     private Tuteur tuteur;
 
     @OneToMany(mappedBy = "appreciation", cascade = CascadeType.ALL)
+    @JsonIgnore
     private List<Evaluation> evaluations;
 }

@@ -2,6 +2,8 @@ package com.gestion.stage.model;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.Entity;
 import jakarta.persistence.OneToMany;
 import jakarta.validation.constraints.NotBlank;
@@ -17,8 +19,10 @@ public class Tuteur extends Personne {
     private String entreprise;
 
     @OneToMany(mappedBy = "tuteur")
+    @JsonIgnore
     private List<Stage> stages;
 
     @OneToMany(mappedBy = "tuteur")
+    @JsonIgnore
     private List<Appreciation> appreciations;
 }

@@ -1,5 +1,8 @@
 package com.gestion.stage.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -33,13 +36,16 @@ public class Stage {
 
     @ManyToOne
     @JoinColumn(name = "stagiaire_id")
+    @JsonIgnoreProperties("stages")
     private Stagiaire stagiaire;
 
     @ManyToOne
     @JoinColumn(name = "tuteur_id")
+    @JsonIgnoreProperties("stages")
     private Tuteur tuteur;
 
     @OneToOne(mappedBy = "stage", cascade = CascadeType.ALL)
+    @JsonIgnore
     private Periode periode;
 }
 

@@ -2,6 +2,8 @@ package com.gestion.stage.model;
 
 import java.util.Date;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -31,5 +33,6 @@ public class Periode {
 
     @OneToOne
     @JoinColumn(name = "stage_id")
+    @JsonIgnoreProperties("periode")
     private Stage stage;
 }

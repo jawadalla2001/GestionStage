@@ -1,5 +1,7 @@
 package com.gestion.stage.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -26,13 +28,16 @@ public class Evaluation {
 
     @ManyToOne
     @JoinColumn(name = "appreciation_id")
+    @JsonIgnoreProperties("evaluations")
     private Appreciation appreciation;
 
     @ManyToOne
     @JoinColumn(name = "categorie_id")
+    @JsonIgnoreProperties("evaluations")
     private Categorie categorie;
 
     @ManyToOne
     @JoinColumn(name = "competences_id")
+    @JsonIgnoreProperties("evaluations")
     private Competences competences;
 }
