@@ -1,6 +1,6 @@
 package com.gestion.stage.dto;
 
-import java.util.Date;
+import java.time.LocalDate;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -27,8 +27,8 @@ public class StageDTO {
 
     // Informations de la période
     @NotNull(message = "La date de début est obligatoire")
-    private Date dateDebut;
+    private LocalDate dateDebut;
 
     @NotNull(message = "La date de fin est obligatoire")
-    private Date dateFin;
+    private LocalDate dateFin;
 }

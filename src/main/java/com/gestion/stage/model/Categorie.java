@@ -2,9 +2,10 @@ package com.gestion.stage.model;
 
 import java.util.List;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -15,6 +16,7 @@ import lombok.Data;
 
 @Data
 @Entity
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Categorie {
 
     @Id
@@ -27,7 +29,7 @@ public class Categorie {
     @NotNull(message = "La valeur est obligatoire")
     private Double valeur;
 
-    @OneToMany(mappedBy = "categorie")
-    @JsonIgnore
-    private List<Evaluation> evaluations;
+    @OneToMany(mappedBy = "categorie", fetch = FetchType.LAZY)
+    @JsonIgnoreProperties("categorie")
+    private List<Competences> competences;
 }

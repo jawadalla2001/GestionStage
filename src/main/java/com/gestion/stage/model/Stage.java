@@ -1,6 +1,7 @@
 package com.gestion.stage.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import jakarta.persistence.CascadeType;
@@ -11,7 +12,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -34,18 +35,16 @@ public class Stage {
     @NotBlank(message = "L'entreprise est obligatoire")
     private String entreprise;
 
+    @OneToMany(mappedBy = "stage", cascade = CascadeType.ALL)
+    @JsonIgnoreProperties("stage")
+    private List<Periode> periodes;
+
     @ManyToOne
     @JoinColumn(name = "stagiaire_id")
-    @JsonIgnoreProperties("stages")
     private Stagiaire stagiaire;
 
     @ManyToOne
     @JoinColumn(name = "tuteur_id")
-    @JsonIgnoreProperties("stages")
     private Tuteur tuteur;
-
-    @OneToOne(mappedBy = "stage", cascade = CascadeType.ALL)
-    @JsonIgnore
-    private Periode periode;
 }
 

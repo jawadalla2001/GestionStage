@@ -64,7 +64,8 @@ const CompetencyTable = ({ title, competencies, evaluations, setEvaluations, lev
               >
                 <td className="p-4 border-b border-gray-300">{comp}</td>
                 {levels.map((level) => {
-                  const isSelected = evaluations[comp] === level;
+                  // Check if the current competency has an evaluation object and if its level matches
+                  const isSelected = evaluations[comp] && evaluations[comp].level === level;
                   const isHovered = hoveredCell === `${comp}-${level}`;
                   
                   return (
@@ -86,7 +87,17 @@ const CompetencyTable = ({ title, competencies, evaluations, setEvaluations, lev
                             type="radio"
                             name={`${comp}-level`}
                             checked={isSelected}
-                            onChange={() => setEvaluations((prev) => ({ ...prev, [comp]: level }))}
+                            onChange={() => {
+                              // Get current comment if it exists, otherwise initialize
+                              const currentComment = evaluations[comp]?.comment || '';
+                              setEvaluations((prev) => ({
+                                ...prev,
+                                [comp]: {
+                                  level: level,
+                                  comment: currentComment 
+                                }
+                              }));
+                            }}
                             className="opacity-0 absolute h-8 w-8 cursor-pointer"
                             aria-label={`Niveau ${level} pour ${comp}`}
                           />

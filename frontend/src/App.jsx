@@ -9,6 +9,31 @@ const implicationLevels = ['Paresseux', 'Le juste nécessaire', 'Bonne', 'Très 
 const opennessLevels = ['Isolé(e) ou en opposition', 'Renfermé(e) ou obtus', 'Bonne', 'Très bonne', 'Excellente'];
 const qualityLevels = ['Médiocre', 'Acceptable', 'Bonne', 'Très bonne', 'Très professionnelle'];
 
+// Define the rubrics for scoring
+const implicationRubric = {
+  'Paresseux': 8,
+  'Le juste nécessaire': 12,
+  'Bonne': 14,
+  'Très forte': 16,
+  'Dépasse ses objectifs': 18
+};
+
+const opennessRubric = {
+  'Isolé(e) ou en opposition': 8,
+  'Renfermé(e) ou obtus': 6,
+  'Bonne': 14,
+  'Très bonne': 16,
+  'Excellente': 18
+};
+
+const qualityRubric = {
+  'Médiocre': 4,
+  'Acceptable': 10,
+  'Bonne': 14,
+  'Très bonne': 16,
+  'Très professionnelle': 18
+};
+
 // Icons as SVG components
 const HomeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -81,8 +106,11 @@ const Notification = ({ message, type, onClose }) => {
 function App() {
   const [formData, setFormData] = useState({
     studentName: '',
+    studentEmail: '',
+    stagiaireInstitution: '',
     companyName: '',
     tutorName: '',
+    tutorEmail: '',
     period: '',
     dateDebut: '',
     dateFin: '',
@@ -105,6 +133,7 @@ function App() {
   const [notification, setNotification] = useState(null);
   const [errors, setErrors] = useState({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('form'); // 'form', or 'dashboard'
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -135,8 +164,10 @@ function App() {
     // Validate based on current page
     if (currentPage === 1) {
       if (!formData.studentName) newErrors.studentName = "Le nom du stagiaire est requis";
-      if (!formData.companyName) newErrors.companyName = "Le nom de l'entreprise est requis";
+      if (!formData.studentEmail) newErrors.studentEmail = "L\'email du stagiaire est requis";
+      if (!formData.companyName) newErrors.companyName = "Le nom de l\'entreprise est requis";
       if (!formData.tutorName) newErrors.tutorName = "Le nom du tuteur est requis";
+      if (!formData.tutorEmail) newErrors.tutorEmail = "L\'email du tuteur est requis";
       if (!formData.dateDebut) newErrors.dateDebut = "La date de début est requise";
       if (!formData.dateFin) newErrors.dateFin = "La date de fin est requise";
     } else if (currentPage === 2) {
@@ -165,8 +196,10 @@ function App() {
       const newErrors = {};
       
       if (!formData.studentName) newErrors.studentName = "Le nom du stagiaire est requis";
-      if (!formData.companyName) newErrors.companyName = "Le nom de l'entreprise est requis";
+      if (!formData.studentEmail) newErrors.studentEmail = "L\'email du stagiaire est requis";
+      if (!formData.companyName) newErrors.companyName = "Le nom de l\'entreprise est requis";
       if (!formData.tutorName) newErrors.tutorName = "Le nom du tuteur est requis";
+      if (!formData.tutorEmail) newErrors.tutorEmail = "L\'email du tuteur est requis";
       if (!formData.dateDebut) newErrors.dateDebut = "La date de début est requise";
       if (!formData.dateFin) newErrors.dateFin = "La date de fin est requise";
       if (!formData.implication) newErrors.implication = "L'implication est requise";
@@ -180,8 +213,51 @@ function App() {
         return;
       }
       
+      // Get numeric scores from rubrics
+      const implicationNote = implicationRubric[formData.implication];
+      const ouvertureNote = opennessRubric[formData.openness];
+      const qualiteTravailNote = qualityRubric[formData.quality];
+
+      // Prepare data for backend submission
+      const backendData = {
+        // Explicitly map formData fields to DTO fields
+        description: formData.projectTheme,
+        objectif: formData.objectives,
+        entreprise: formData.companyName,
+        // Spread the rest of formData that matches DTO fields directly or are not part of DTO
+        ...formData, 
+        // Overwrite with mapped values if they were also in formData with different names
+        projectTheme: undefined, // remove as it's mapped to description
+        objectives: undefined,   // remove as it's mapped to objectif
+        companyName: undefined,  // remove as it's mapped to entreprise
+        // studentName, studentEmail, stagiaireInstitution, tutorName, tutorEmail, dateDebut, dateFin are fine as they are in formData
+        
+        implicationNote,
+        ouvertureNote,
+        qualiteTravailNote,
+        // Add competency details and scores
+        individualCompetencies,
+        companyCompetencies,
+        technicalCompetencies,
+        specificJobCompetencies,
+        individualScore: individualScore ? parseInt(individualScore, 10) : null, // Ensure scores are numbers or null
+        companyScore: companyScore ? parseInt(companyScore, 10) : null,
+        technicalScore: technicalScore ? parseInt(technicalScore, 10) : null,
+        // Remove the text-based implication, openness, quality if they are not needed by backend
+        // or if backend expects only notes.
+        // If your DTO still has String implication, openness, quality, you can keep them
+        // or remove them if only notes are now used.
+      };
+      
+      // Clean up undefined properties from backendData
+      Object.keys(backendData).forEach(key => {
+        if (backendData[key] === undefined) {
+          delete backendData[key];
+        }
+      });
+      
       // Log the data being submitted
-      console.log('Form Data:', formData);
+      console.log('Data being sent to backend:', backendData);
       console.log('Individual Competencies:', individualCompetencies);
       console.log('Individual Score:', individualScore);
       console.log('Company Competencies:', companyCompetencies);
@@ -204,7 +280,9 @@ function App() {
         technicalScore
       };
       
-      const result = await submissionService.submitFormData(formData, competencyEvaluations);
+      // const result = await submissionService.submitFormData(formData, competencyEvaluations);
+      // MODIFIED to send backendData instead of just formData
+      const result = await submissionService.submitFormData(backendData, competencyEvaluations);
       
       setSubmitResult(result);
       
@@ -229,8 +307,11 @@ function App() {
   const resetForm = () => {
     setFormData({
     studentName: '',
+    studentEmail: '',
+    stagiaireInstitution: '',
     companyName: '',
     tutorName: '',
+    tutorEmail: '',
     period: '',
     dateDebut: '',
     dateFin: '',
@@ -299,12 +380,13 @@ function App() {
   };
 
   const renderPage = () => {
-    switch (currentPage) {
-      case 1:
+    if (activeTab === 'form') {
         return (
+        <>
+          {renderProgressBar()}
+          {currentPage === 1 && (
           <div className="bg-white p-6 rounded-xl shadow-lg transition-all duration-300 border border-gray-100">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Détails du Stage</h2>
-            {renderProgressBar()}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="studentName" className="block text-sm font-medium text-gray-700 mb-1">
@@ -321,6 +403,36 @@ function App() {
                 />
                 {errors.studentName && <p className="text-red-500 text-sm mt-1">{errors.studentName}</p>}
               </div>
+                <div>
+                  <label htmlFor="studentEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                    Email du stagiaire *
+                  </label>
+                  <input
+                    type="email"
+                    id="studentEmail"
+                    name="studentEmail"
+                    value={formData.studentEmail}
+                    onChange={handleInputChange}
+                    placeholder="ex: jean.dupont@example.com"
+                    className={`w-full border ${errors.studentEmail ? 'border-red-500' : 'border-gray-300'} p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
+                  />
+                  {errors.studentEmail && <p className="text-red-500 text-sm mt-1">{errors.studentEmail}</p>}
+                </div>
+                <div>
+                  <label htmlFor="stagiaireInstitution" className="block text-sm font-medium text-gray-700 mb-1">
+                    Institution du stagiaire
+                  </label>
+                  <input
+                    type="text"
+                    id="stagiaireInstitution"
+                    name="stagiaireInstitution"
+                    value={formData.stagiaireInstitution}
+                    onChange={handleInputChange}
+                    placeholder="ex: Université XYZ"
+                    className={`w-full border ${errors.stagiaireInstitution ? 'border-red-500' : 'border-gray-300'} p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
+                  />
+                  {errors.stagiaireInstitution && <p className="text-red-500 text-sm mt-1">{errors.stagiaireInstitution}</p>}
+                </div>
               <div>
                 <label htmlFor="companyName" className="block text-sm font-medium text-gray-700 mb-1">
                   Nom de l'entreprise *
@@ -351,6 +463,21 @@ function App() {
                 />
                 {errors.tutorName && <p className="text-red-500 text-sm mt-1">{errors.tutorName}</p>}
               </div>
+                <div>
+                  <label htmlFor="tutorEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                    Email du tuteur *
+                  </label>
+                  <input
+                    type="email"
+                    id="tutorEmail"
+                    name="tutorEmail"
+                    value={formData.tutorEmail}
+                    onChange={handleInputChange}
+                    placeholder="ex: marie.martin@example.com"
+                    className={`w-full border ${errors.tutorEmail ? 'border-red-500' : 'border-gray-300'} p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
+                  />
+                  {errors.tutorEmail && <p className="text-red-500 text-sm mt-1">{errors.tutorEmail}</p>}
+                </div>
               <div className="col-span-2">
                 <p className="block text-sm font-medium text-gray-700 mb-1">
                   Période du stage *
@@ -416,12 +543,10 @@ function App() {
               />
             </div>
           </div>
-        );
-      case 2:
-        return (
+          )}
+          {currentPage === 2 && (
           <div className="bg-white p-6 rounded-xl shadow-lg transition-all duration-300 border border-gray-100">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Appréciations Globales</h2>
-            {renderProgressBar()}
             <div className="space-y-4">
               <div>
                 <label className="block text-gray-700 mb-2">Implication dans ses activités</label>
@@ -484,12 +609,10 @@ function App() {
               />
             </div>
           </div>
-        );
-      case 3:
-        return (
+          )}
+          {currentPage === 3 && (
           <div className="bg-white p-6 rounded-xl shadow-lg transition-all duration-300 border border-gray-100">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Évaluation des Compétences</h2>
-            {renderProgressBar()}
             <CompetencyTable
               title="Compétences liées à l'individu"
               competencies={['Compétence 1', 'Compétence 2', 'Compétence 3']}
@@ -525,12 +648,10 @@ function App() {
               />
             </div>
           </div>
-        );
-      case 4:
-        return (
+          )}
+          {currentPage === 4 && (
           <div className="bg-white p-6 rounded-xl shadow-lg transition-all duration-300 border border-gray-100">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Compétences Scientifiques et Techniques</h2>
-            {renderProgressBar()}
             <CompetencyTable
               competencies={technicalCompetencyList}
               evaluations={technicalCompetencies}
@@ -548,70 +669,83 @@ function App() {
               />
             </div>
           </div>
-        );
-      case 5:
-        return (
+          )}
+          {currentPage === 5 && (
           <div className="bg-white p-6 rounded-xl shadow-lg transition-all duration-300 border border-gray-100">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Compétences Spécifiques Métier</h2>
-            {renderProgressBar()}
             <CompetencyTable
-              
               competencies={specificJobCompetencyList}
               evaluations={specificJobCompetencies}
               setEvaluations={setSpecificJobCompetencies}
               levels={competencyLevels}
             />
           </div>
-        );
-      case 6:
-        return (
-          <div className="bg-white p-6 rounded-xl shadow-lg transition-all duration-300 border border-gray-100">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Récapitulatif et Soumission</h2>
-            {renderProgressBar()}
-            
-            <div className="space-y-6">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold text-blue-800 mb-2">Informations Générales</h3>
-                <p><span className="font-medium">Stagiaire:</span> {formData.studentName || 'Non spécifié'}</p>
-                <p><span className="font-medium">Entreprise:</span> {formData.companyName || 'Non spécifiée'}</p>
-                <p><span className="font-medium">Tuteur:</span> {formData.tutorName || 'Non spécifié'}</p>
-                <p><span className="font-medium">Période:</span> {formData.dateDebut && formData.dateFin ? `Du ${new Date(formData.dateDebut).toLocaleDateString()} au ${new Date(formData.dateFin).toLocaleDateString()}` : 'Non spécifiée'}</p>
+          )}
+          {currentPage === 6 && (
+            <div className="bg-white p-8 rounded-xl shadow-2xl transition-all duration-300 border border-gray-200 w-full max-w-3xl mx-auto">
+              <h2 className="text-3xl font-bold text-gray-800 mb-10 text-center">Récapitulatif de l'Évaluation</h2>
+              
+              <div className="space-y-8">
+                {/* Informations Générales Card */}
+                <div className="bg-slate-50 p-6 rounded-lg shadow-md border border-slate-200">
+                  <h3 className="text-xl font-semibold text-slate-700 mb-4 border-b pb-2">Informations Générales</h3>
+                  <dl className="space-y-2">
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Stagiaire:</dt><dd className="text-gray-800 text-right">{formData.studentName || 'Non spécifié'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Email Stagiaire:</dt><dd className="text-gray-800 text-right">{formData.studentEmail || 'Non spécifié'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Institution:</dt><dd className="text-gray-800 text-right">{formData.stagiaireInstitution || 'Non spécifiée'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Entreprise:</dt><dd className="text-gray-800 text-right">{formData.companyName || 'Non spécifiée'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Tuteur:</dt><dd className="text-gray-800 text-right">{formData.tutorName || 'Non spécifié'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Email Tuteur:</dt><dd className="text-gray-800 text-right">{formData.tutorEmail || 'Non spécifié'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Période:</dt><dd className="text-gray-800 text-right">{formData.dateDebut && formData.dateFin ? `Du ${new Date(formData.dateDebut).toLocaleDateString()} au ${new Date(formData.dateFin).toLocaleDateString()}` : 'Non spécifiée'}</dd></div>
+                  </dl>
               </div>
               
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold text-green-800 mb-2">Projet et Objectifs</h3>
-                <p><span className="font-medium">Thème du projet:</span> {formData.projectTheme || 'Non spécifié'}</p>
-                <p><span className="font-medium">Objectifs:</span> {formData.objectives || 'Non spécifiés'}</p>
+                {/* Projet et Objectifs Card */}
+                <div className="bg-teal-50 p-6 rounded-lg shadow-md border border-teal-200">
+                  <h3 className="text-xl font-semibold text-teal-700 mb-4 border-b pb-2">Projet et Objectifs</h3>
+                  <dl className="space-y-2">
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Thème du projet:</dt><dd className="text-gray-800 text-right">{formData.projectTheme || 'Non spécifié'}</dd></div>
+                    <div><dt className="font-medium text-gray-600 mb-1">Objectifs:</dt><dd className="text-gray-800 whitespace-pre-wrap text-sm bg-white p-2 rounded">{formData.objectives || 'Non spécifiés'}</dd></div>
+                  </dl>
               </div>
               
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold text-purple-800 mb-2">Appréciations</h3>
-                <p><span className="font-medium">Implication:</span> {formData.implication || 'Non évaluée'}</p>
-                <p><span className="font-medium">Ouverture aux autres:</span> {formData.openness || 'Non évaluée'}</p>
-                <p><span className="font-medium">Qualité du travail:</span> {formData.quality || 'Non évaluée'}</p>
-                <p><span className="font-medium">Observations:</span> {formData.observations || 'Aucune observation'}</p>
+                {/* Appréciations Card */}
+                <div className="bg-indigo-50 p-6 rounded-lg shadow-md border border-indigo-200">
+                  <h3 className="text-xl font-semibold text-indigo-700 mb-4 border-b pb-2">Appréciations Globales</h3>
+                  <dl className="space-y-2">
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Implication:</dt><dd className="text-gray-800 text-right">{formData.implication || 'Non évaluée'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Ouverture aux autres:</dt><dd className="text-gray-800 text-right">{formData.openness || 'Non évaluée'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Qualité du travail:</dt><dd className="text-gray-800 text-right">{formData.quality || 'Non évaluée'}</dd></div>
+                    <div><dt className="font-medium text-gray-600 mb-1">Observations Générales:</dt><dd className="text-gray-800 whitespace-pre-wrap text-sm bg-white p-2 rounded">{formData.observations || 'Aucune observation'}</dd></div>
+                  </dl>
               </div>
               
-              <div className="bg-amber-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold text-amber-800 mb-2">Notes d'Évaluation</h3>
-                <p><span className="font-medium">Note compétences individuelles:</span> {individualScore ? `${individualScore}/20` : 'Non notée'}</p>
-                <p><span className="font-medium">Note compétences entreprise:</span> {companyScore ? `${companyScore}/20` : 'Non notée'}</p>
-                <p><span className="font-medium">Note compétences techniques:</span> {technicalScore ? `${technicalScore}/20` : 'Non notée'}</p>
+                {/* Notes d'Évaluation Card */}
+                <div className="bg-rose-50 p-6 rounded-lg shadow-md border border-rose-200">
+                  <h3 className="text-xl font-semibold text-rose-700 mb-4 border-b pb-2">Notes d'Évaluation des Compétences</h3>
+                  <dl className="space-y-2">
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Compétences liées à l'individu:</dt><dd className="text-gray-800 font-semibold text-right">{individualScore ? `${individualScore}/20` : 'Non notée'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Compétences liées à l'entreprise:</dt><dd className="text-gray-800 font-semibold text-right">{companyScore ? `${companyScore}/20` : 'Non notée'}</dd></div>
+                    <div className="flex justify-between"><dt className="font-medium text-gray-600">Compétences Sci. et Techniques:</dt><dd className="text-gray-800 font-semibold text-right">{technicalScore ? `${technicalScore}/20` : 'Non notée'}</dd></div>
+                    {/* Consider adding a section for specific job competencies if they are scored globally */}
+                  </dl>
               </div>
               
-              <div className="pt-4 text-center">
-                <p className="text-gray-600 mb-4">Veuillez vérifier les informations ci-dessus avant de soumettre le formulaire.</p>
+                <div className="pt-6 text-center">
+                  <p className="text-gray-600 mb-6 italic">Veuillez vérifier attentivement toutes les informations ci-dessus avant de soumettre le formulaire d'évaluation.</p>
               </div>
             </div>
           </div>
-        );
-      case 7:
-        return (
+          )}
+          {currentPage === 7 && (
           <Dashboard userData={formData} />
+          )}
+        </>
         );
-      default:
-        return null;
+    } else if (activeTab === 'dashboard') {
+      return <Dashboard />;
     }
+    return null;
   };
 
   return (
@@ -645,9 +779,9 @@ function App() {
           <ul className="space-y-2">
             <li>
               <button
-                onClick={() => {setCurrentPage(1); setIsMobileMenuOpen(false);}}
+                onClick={() => {setCurrentPage(1); setActiveTab('form'); setIsMobileMenuOpen(false);}}
                 className={`w-full text-left p-3 rounded-lg flex items-center transition-all duration-200 ${
-                  currentPage === 1 
+                  currentPage === 1 && activeTab === 'form'
                     ? 'bg-blue-600 shadow-md' 
                     : 'bg-blue-700/50 hover:bg-blue-600/70'
                 }`}
@@ -658,9 +792,9 @@ function App() {
             </li>
             <li>
               <button
-                onClick={() => {setCurrentPage(2); setIsMobileMenuOpen(false);}}
+                onClick={() => {setCurrentPage(2); setActiveTab('form'); setIsMobileMenuOpen(false);}}
                 className={`w-full text-left p-3 rounded-lg flex items-center transition-all duration-200 ${
-                  currentPage === 2 
+                  currentPage === 2 && activeTab === 'form'
                     ? 'bg-blue-600 shadow-md' 
                     : 'bg-blue-700/50 hover:bg-blue-600/70'
                 }`}
@@ -671,9 +805,9 @@ function App() {
             </li>
             <li>
               <button
-                onClick={() => {setCurrentPage(3); setIsMobileMenuOpen(false);}}
+                onClick={() => {setCurrentPage(3); setActiveTab('form'); setIsMobileMenuOpen(false);}}
                 className={`w-full text-left p-3 rounded-lg flex items-center transition-all duration-200 ${
-                  currentPage === 3 
+                  currentPage === 3 && activeTab === 'form'
                     ? 'bg-blue-600 shadow-md' 
                     : 'bg-blue-700/50 hover:bg-blue-600/70'
                 }`}
@@ -684,9 +818,9 @@ function App() {
             </li>
             <li>
               <button
-                onClick={() => {setCurrentPage(4); setIsMobileMenuOpen(false);}}
+                onClick={() => {setCurrentPage(4); setActiveTab('form'); setIsMobileMenuOpen(false);}}
                 className={`w-full text-left p-3 rounded-lg flex items-center transition-all duration-200 ${
-                  currentPage === 4 
+                  currentPage === 4 && activeTab === 'form'
                     ? 'bg-blue-600 shadow-md' 
                     : 'bg-blue-700/50 hover:bg-blue-600/70'
                 }`}
@@ -697,9 +831,9 @@ function App() {
             </li>
             <li>
               <button
-                onClick={() => {setCurrentPage(5); setIsMobileMenuOpen(false);}}
+                onClick={() => {setCurrentPage(5); setActiveTab('form'); setIsMobileMenuOpen(false);}}
                 className={`w-full text-left p-3 rounded-lg flex items-center transition-all duration-200 ${
-                  currentPage === 5 
+                  currentPage === 5 && activeTab === 'form'
                     ? 'bg-blue-600 shadow-md' 
                     : 'bg-blue-700/50 hover:bg-blue-600/70'
                 }`}
@@ -710,9 +844,9 @@ function App() {
             </li>
             <li>
               <button
-                onClick={() => {setCurrentPage(6); setIsMobileMenuOpen(false);}}
+                onClick={() => {setCurrentPage(6); setActiveTab('form'); setIsMobileMenuOpen(false);}}
                 className={`w-full text-left p-3 rounded-lg flex items-center transition-all duration-200 ${
-                  currentPage === 6 
+                  currentPage === 6 && activeTab === 'form'
                     ? 'bg-blue-600 shadow-md' 
                     : 'bg-blue-700/50 hover:bg-blue-600/70'
                 }`}
@@ -725,9 +859,9 @@ function App() {
             </li>
             <li>
               <button
-                onClick={() => {setCurrentPage(7); setIsMobileMenuOpen(false);}}
+                onClick={() => {setCurrentPage(7); setActiveTab('form'); setIsMobileMenuOpen(false);}}
                 className={`w-full text-left p-3 rounded-lg flex items-center transition-all duration-200 ${
-                  currentPage === 7 
+                  currentPage === 7 && activeTab === 'form'
                     ? 'bg-blue-600 shadow-md' 
                     : 'bg-blue-700/50 hover:bg-blue-600/70'
                 }`}
@@ -752,42 +886,46 @@ function App() {
       <div className="flex-1 p-4 md:p-8 overflow-y-auto">
         <div className="max-w-4xl mx-auto py-6 md:px-4 min-h-[calc(100vh-4rem)] flex flex-col">
           {renderPage()}
-          <div className="flex justify-between mt-6">
-            <button
-              onClick={handlePrevPage}
-              className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition duration-200 disabled:opacity-50 shadow-md flex items-center"
-              disabled={currentPage === 1}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Précédent
-            </button>
-            {currentPage < totalPages ? (
+          
+          {/* Only show navigation buttons for the form */}
+          {activeTab === 'form' && (
+            <div className="flex justify-between mt-6">
               <button
-                onClick={handleNextPage}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition duration-200 shadow-md flex items-center"
+                onClick={handlePrevPage}
+                className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition duration-200 disabled:opacity-50 shadow-md flex items-center"
+                disabled={currentPage === 1}
               >
-                Suivant
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
+                Précédent
               </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className={`${
-                  submitting ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'
-                } text-white px-6 py-3 rounded-lg transition duration-200 shadow-md flex items-center`}
-              >
-                {submitting ? 'Envoi en cours...' : 'Soumettre'}
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              </button>
-            )}
-          </div>
+              {currentPage < totalPages ? (
+                <button
+                  onClick={handleNextPage}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition duration-200 shadow-md flex items-center"
+                >
+                  Suivant
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className={`${
+                    submitting ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'
+                  } text-white px-6 py-3 rounded-lg transition duration-200 shadow-md flex items-center`}
+                >
+                  {submitting ? 'Envoi en cours...' : 'Soumettre'}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
       

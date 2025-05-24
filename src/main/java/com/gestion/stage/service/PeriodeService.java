@@ -1,6 +1,6 @@
 package com.gestion.stage.service;
 
-import java.util.Date;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.gestion.stage.model.Periode;
+import com.gestion.stage.model.Stagiaire;
 import com.gestion.stage.repository.PeriodeRepository;
 
 @Service
@@ -28,12 +29,16 @@ public class PeriodeService {
         return periodeRepository.findById(id);
     }
 
-    public List<Periode> getPeriodesDebutantApres(Date date) {
+    public List<Periode> getPeriodesDebutantApres(LocalDate date) {
         return periodeRepository.findByDateDebutAfter(date);
     }
 
-    public List<Periode> getPeriodesFinissantAvant(Date date) {
+    public List<Periode> getPeriodesFinissantAvant(LocalDate date) {
         return periodeRepository.findByDateFinBefore(date);
+    }
+
+    public List<Periode> getPeriodesByStagiaire(Stagiaire stagiaire) {
+        return periodeRepository.findByStagiaire(stagiaire);
     }
 
     public Periode savePeriode(Periode periode) {

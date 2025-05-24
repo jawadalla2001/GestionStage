@@ -1,6 +1,7 @@
 package com.gestion.stage.model;
 
-import java.util.Date;
+import java.time.LocalDate;
+import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
@@ -9,9 +10,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
-import jakarta.persistence.Temporal;
-import jakarta.persistence.TemporalType;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -24,15 +24,43 @@ public class Periode {
     private Long id;
 
     @NotNull(message = "La date de début est obligatoire")
-    @Temporal(TemporalType.DATE)
-    private Date dateDebut;
+    private LocalDate dateDebut;
 
     @NotNull(message = "La date de fin est obligatoire")
-    @Temporal(TemporalType.DATE)
-    private Date dateFin;
+    private LocalDate dateFin;
 
-    @OneToOne
+    @ManyToOne
     @JoinColumn(name = "stage_id")
-    @JsonIgnoreProperties("periode")
+    @JsonIgnoreProperties("periodes")
     private Stage stage;
+
+    @ManyToOne
+    @JoinColumn(name = "stagiaire_id")
+    @JsonIgnoreProperties("periodes")
+    private Stagiaire stagiaire;
+
+    @ManyToOne
+    @JoinColumn(name = "tuteur_id")
+    @JsonIgnoreProperties({"periodes", "appreciations"})
+    private Tuteur tuteur;
+
+    @OneToMany(mappedBy = "periode")
+    @JsonIgnoreProperties("periode")
+    private List<Appreciation> appreciations;
+
+    public LocalDate getDateDebut() {
+        return dateDebut;
+    }
+
+    public void setDateDebut(LocalDate dateDebut) {
+        this.dateDebut = dateDebut;
+    }
+
+    public LocalDate getDateFin() {
+        return dateFin;
+    }
+
+    public void setDateFin(LocalDate dateFin) {
+        this.dateFin = dateFin;
+    }
 }

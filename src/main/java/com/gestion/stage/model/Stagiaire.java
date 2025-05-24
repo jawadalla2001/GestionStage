@@ -20,5 +20,5 @@ public class Stagiaire extends Personne {
 
     @OneToMany(mappedBy = "stagiaire")
     @JsonIgnore
-    private List<Stage> stages;
+    private List<Periode> periodes;
 }

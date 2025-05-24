@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.gestion.stage.model.Categorie;
 import com.gestion.stage.model.Competences;
 import com.gestion.stage.repository.CompetencesRepository;
 
@@ -29,6 +30,10 @@ public class CompetencesService {
 
     public Optional<Competences> getCompetencesByIntitule(String intitule) {
         return competencesRepository.findByIntitule(intitule);
+    }
+
+    public List<Competences> getCompetencesByCategorie(Categorie categorie) {
+        return competencesRepository.findByCategorie(categorie);
     }
 
     public Competences saveCompetences(Competences competences) {

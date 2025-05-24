@@ -6,9 +6,6 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import com.gestion.stage.model.Appreciation;
-import com.gestion.stage.model.Categorie;
-import com.gestion.stage.model.Competences;
 import com.gestion.stage.model.Evaluation;
 import com.gestion.stage.repository.EvaluationRepository;
 
@@ -30,16 +27,8 @@ public class EvaluationService {
         return evaluationRepository.findById(id);
     }
 
-    public List<Evaluation> getEvaluationsByAppreciation(Appreciation appreciation) {
-        return evaluationRepository.findByAppreciation(appreciation);
-    }
-
-    public List<Evaluation> getEvaluationsByCategorie(Categorie categorie) {
-        return evaluationRepository.findByCategorie(categorie);
-    }
-
-    public List<Evaluation> getEvaluationsByCompetences(Competences competences) {
-        return evaluationRepository.findByCompetences(competences);
+    public List<Evaluation> getEvaluationsByCategorie(String categorieStr) {
+        return evaluationRepository.findByCategorieStr(categorieStr);
     }
 
     public Evaluation saveEvaluation(Evaluation evaluation) {

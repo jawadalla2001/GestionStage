@@ -20,9 +20,5 @@ public class Tuteur extends Personne {
 
     @OneToMany(mappedBy = "tuteur")
     @JsonIgnore
-    private List<Stage> stages;
-
-    @OneToMany(mappedBy = "tuteur")
-    @JsonIgnore
     private List<Appreciation> appreciations;
 }

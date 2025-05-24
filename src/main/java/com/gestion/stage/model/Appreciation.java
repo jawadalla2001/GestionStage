@@ -1,19 +1,13 @@
 package com.gestion.stage.model;
 
-import java.util.List;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
-import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
@@ -24,15 +18,21 @@ public class Appreciation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank(message = "La description est obligatoire")
-    @Column(nullable = false)
-    private String description;
-
     @ManyToOne
     @JoinColumn(name = "tuteur_id")
+    @JsonIgnoreProperties("appreciations")
     private Tuteur tuteur;
 
-    @OneToMany(mappedBy = "appreciation", cascade = CascadeType.ALL)
-    @JsonIgnore
-    private List<Evaluation> evaluations;
+    @ManyToOne
+    @JoinColumn(name = "periode_id")
+    @JsonIgnoreProperties("appreciations")
+    private Periode periode;
+
+    @ManyToOne
+    @JoinColumn(name = "evaluation_id")
+    private Evaluation evaluation;
+
+    @ManyToOne
+    @JoinColumn(name = "competences_id")
+    private Competences competences;
 }

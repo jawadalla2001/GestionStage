@@ -1,10 +1,10 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8080/api';
+const API_URL = 'http://localhost:8081/api';
 
 // Create axios instance with base configuration
 // Add request/response interceptors for debugging
-const apiClient = axios.create({
+export const apiClient = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
@@ -12,6 +12,92 @@ const apiClient = axios.create({
   // Increase timeout for slow connections
   timeout: 10000
 });
+
+// Vérificateur d'état de l'API
+export const apiHealthCheck = {
+  // Vérifier si l'API est accessible
+  isBackendAvailable: async () => {
+    try {
+      // Tenter une requête simple pour vérifier si le backend répond
+      const response = await apiClient.get('/');
+      console.log('Backend health check successful', response.status);
+      return true;
+    } catch (error) {
+      if (error.response) {
+        // Si on reçoit une réponse, même une erreur 404, c'est que le backend est joignable
+        console.log('Backend accessible mais endpoint de test non trouvé');
+        return true;
+      }
+      console.error('Backend health check failed', error);
+      return false;
+    }
+  },
+  
+  // Vérifier si une entité spécifique est accessible
+  canAccessEndpoint: async (endpoint) => {
+    try {
+      const response = await apiClient.get(endpoint);
+      return { success: true, status: response.status };
+    } catch (error) {
+      if (error.response) {
+        // Si on reçoit une erreur HTTP, l'endpoint est techniquement accessible
+        return { 
+          success: false, 
+          status: error.response.status,
+          message: error.response.data?.message || 'Endpoint inaccessible'
+        };
+      }
+      return { 
+        success: false, 
+        status: 0,
+        message: 'Impossible de contacter le serveur'
+      };
+    }
+  },
+  
+  // Exécuter une série de vérifications avant une opération importante
+  validateBackendConnection: async () => {
+    const isAvailable = await apiHealthCheck.isBackendAvailable();
+    if (!isAvailable) {
+      return {
+        success: false,
+        message: 'Le serveur backend est inaccessible. Vérifiez votre connexion réseau ou contactez l\'administrateur.'
+      };
+    }
+    
+    // Vérifier les principaux endpoints utilisés
+    const endpoints = [
+      '/stages',
+      '/stagiaires',
+      '/tuteurs',
+      '/periodes',
+      '/appreciations',
+      '/evaluations',
+      '/competences',
+      '/categories'
+    ];
+    
+    const results = {};
+    let allSuccess = true;
+    
+    for (const endpoint of endpoints) {
+      const check = await apiHealthCheck.canAccessEndpoint(endpoint);
+      results[endpoint] = check;
+      if (!check.success && check.status !== 404) {
+        // Le 404 est acceptable car peut-être qu'aucune entité n'existe encore
+        allSuccess = false;
+      }
+    }
+    
+    return {
+      success: allSuccess,
+      results,
+      message: allSuccess 
+        ? 'Tous les endpoints sont accessibles'
+        : 'Certains endpoints sont inaccessibles, vérifiez la configuration'
+    };
+  }
+};
 
 // Request interceptor - log all requests
 apiClient.interceptors.request.use(request => {
@@ -26,20 +112,69 @@ apiClient.interceptors.response.use(
     console.log('Response:', response);
     return response;
   },
-  error => {
+  async error => {
     console.error('API Error:', error);
-    if (error.response) {
-      // Server responded with an error status
-      console.error('Error Response Data:', error.response.data);
-      console.error('Error Response Status:', error.response.status);
-      console.error('Error Response Headers:', error.response.headers);
-    } else if (error.request) {
-      // Request was made but no response received
-      console.error('No Response Received:', error.request);
+    
+    const originalRequest = error.config;
+    
+    // Ajouter un compteur de tentatives pour éviter les boucles infinies
+    if (!originalRequest._retry) {
+      if (error.response) {
+        // Server responded with an error status
+        console.error('Error Response Data:', error.response.data);
+        console.error('Error Response Status:', error.response.status);
+        console.error('Error Response Headers:', error.response.headers);
+        
+        // Gestion des erreurs 500 - on peut retenter une fois
+        if (error.response.status === 500 && !originalRequest._retry) {
+          console.log('Tentative de nouvel essai après erreur 500...');
+          originalRequest._retry = true;
+          
+          // Attendre un peu avant de réessayer
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Réessayer la requête
+          return apiClient(originalRequest);
+        }
+        
+        // Gestion des erreurs 404 pour certains endpoints qui ont des chemins alternatifs
+        if (error.response.status === 404) {
+          const url = originalRequest.url;
+          
+          // Si c'est une requête GET pour un élément par intitulé, on peut essayer de créer
+          if (url.includes('/intitule/') && originalRequest.method === 'get') {
+            console.log('Entité non trouvée, possibilité de la créer ensuite');
+          }
+          
+          // Si on cherche à lier des entités via un endpoint dédié mais il n'existe pas
+          if ((url.includes('/appreciation/') || url.includes('/evaluation/')) && 
+              !originalRequest._triedAlternative) {
+            console.log('Endpoint spécifique non trouvé, sera géré par le code appelant');
+          }
+        }
+      } else if (error.request) {
+        // Request was made but no response received - possible network error
+        console.error('No Response Received:', error.request);
+        
+        // On peut réessayer une fois en cas d'erreur réseau
+        if (!originalRequest._networkRetry) {
+          console.log('Tentative de nouvel essai après échec réseau...');
+          originalRequest._networkRetry = true;
+          
+          // Attendre un peu plus longtemps pour les erreurs réseau
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Réessayer la requête
+          return apiClient(originalRequest);
+        }
+      } else {
+        // Request setup failed
+        console.error('Request Setup Error:', error.message);
+      }
     } else {
-      // Request setup failed
-      console.error('Request Setup Error:', error.message);
+      console.error('La requête a déjà été retentée une fois, abandon.');
     }
+    
     return Promise.reject(error);
   }
 );
@@ -56,18 +191,15 @@ export const stageApi = {
   create: (stageData) => apiClient.post('/stages', stageData),
   
   // Create stage with minimal entity references to avoid issues
-  createWithIds: (description, objectif, entreprise, stagiaireId, tuteurId) => {
+  createWithIds: (stageData, stagiaireId) => {
     // Use the minimal format expected by JPA/Hibernate
-    const stageData = {
-      description,
-      objectif,
-      entreprise,
-      stagiaire: { id: stagiaireId },
-      tuteur: { id: tuteurId }
+    const data = {
+      ...stageData,
+      stagiaires: [{ id: stagiaireId }]
     };
     
-    console.log('Creating stage with minimal ID references:', JSON.stringify(stageData, null, 2));
-    return apiClient.post('/stages', stageData);
+    console.log('Creating stage with minimal ID references:', JSON.stringify(data, null, 2));
+    return apiClient.post('/stages', data);
   },
   
   // Update stage
@@ -82,11 +214,112 @@ export const periodeApi = {
   // Get all periods
   getAll: () => apiClient.get('/periodes'),
   
-  // Create new period for a stage
-  create: (stageId, periodeData) => apiClient.post(`/periodes/stage/${stageId}`, periodeData),
+  // Create new period with proper relationships
+  create: (periodeData) => apiClient.post('/periodes', periodeData),
+  
+  // Create new period for a stage - include stagiaire_id explicitly
+  createForStage: (stageId, stagiaireId, periodeData) => {
+    // Vérifier si les IDs sont valides
+    if (!stageId || !stagiaireId) {
+      console.error('createForStage: stageId ou stagiaireId manquant');
+      return Promise.reject(new Error('Stage ID et Stagiaire ID sont requis'));
+    }
+    
+    // Inclure stagiaireId comme objet pour JPA
+    const completeData = {
+      ...periodeData,
+      stage: { id: stageId },
+      stagiaire: { id: stagiaireId }
+    };
+    
+    // Utiliser l'endpoint principal avec toutes les relations
+    console.log('Création période avec données complètes:', completeData);
+    return apiClient.post('/periodes', completeData);
+  },
+  
+  // Create new period with all relationships explicitly specified
+  createComplete: (stageId, stagiaireId, periodeData) => {
+    const completeData = {
+      ...periodeData,
+      stage: { id: stageId },
+      stagiaire: { id: stagiaireId }
+    };
+    return apiClient.post('/periodes', completeData);
+  },
   
   // Update period
   update: (id, periodeData) => apiClient.put(`/periodes/${id}`, periodeData),
+  
+  // Associate a tutor with a period - try different endpoint formats
+  addTuteur: (periodeId, tuteurId) => {
+    // Vérifier si les IDs sont valides
+    if (!periodeId || !tuteurId) {
+      console.error('addTuteur: periodeId ou tuteurId manquant');
+      return Promise.reject(new Error('Periode ID et Tuteur ID sont requis'));
+    }
+    
+    console.log(`Tentative d'association tuteur ${tuteurId} à période ${periodeId}`);
+    
+    // Essayer plusieurs approches en séquence
+    return new Promise((resolve, reject) => {
+      // Approche 1: PUT à l'endpoint dédié
+      apiClient.put(`/periodes/${periodeId}/tuteur/${tuteurId}`)
+        .then(response => {
+          console.log('Association réussie via PUT /periodes/{id}/tuteur/{id}');
+          resolve(response);
+        })
+        .catch(error1 => {
+          console.error('Échec méthode PUT, tentative avec POST:', error1);
+          
+          // Approche 2: POST à l'endpoint dédié (si PUT n'est pas accepté)
+          apiClient.post(`/periodes/${periodeId}/tuteur/${tuteurId}`)
+            .then(response => {
+              console.log('Association réussie via POST /periodes/{id}/tuteur/{id}');
+              resolve(response);
+            })
+            .catch(error2 => {
+              console.error('Échec méthode POST, tentative mise à jour complète:', error2);
+              
+              // Approche 3: Mettre à jour l'objet période entier
+              apiClient.get(`/periodes/${periodeId}`)
+                .then(periodeResponse => {
+                  const periodeActuelle = periodeResponse.data;
+                  const periodeUpdated = {
+                    ...periodeActuelle,
+                    tuteur: { id: tuteurId }
+                  };
+                  
+                  return apiClient.put(`/periodes/${periodeId}`, periodeUpdated);
+                })
+                .then(response => {
+                  console.log('Association réussie via mise à jour complète');
+                  resolve(response);
+                })
+                .catch(error3 => {
+                  console.error('Toutes les tentatives ont échoué:', error3);
+                  reject(error3);
+                });
+            });
+        });
+    });
+  },
+  
+  // Alternative method to associate tutor with period
+  addTuteurAlt: (periodeId, tuteurId) => {
+    // Récupérer d'abord la période
+    return apiClient.get(`/periodes/${periodeId}`)
+      .then(response => {
+        const periode = response.data;
+        // Mettre à jour avec le tuteur
+        return apiClient.put(`/periodes/${periodeId}`, { 
+          ...periode,
+          tuteur: { id: tuteurId } 
+        });
+      });
+  },
+  
+  // Get all periods associated with a tutor
+  getByTuteur: (tuteurId) => apiClient.get(`/periodes/tuteur/${tuteurId}`),
 };
 
 // Tuteur (Tutor) API
@@ -100,18 +333,79 @@ export const tuteurApi = {
   // Create new tutor
   create: (tuteurData) => apiClient.post('/tuteurs', tuteurData),
   
-  // Find or create a tutor by email
+  // Find or create a tutor by email with unique email generation
   findOrCreate: async (tuteurData) => {
+    // Generate a more unique email with timestamp to avoid conflicts
+    const timestamp = new Date().getTime();
+    const baseEmail = `${tuteurData.nom.toLowerCase()}.${
+      tuteurData.prenom ? tuteurData.prenom.toLowerCase() : 'x'
+    }`;
+    const uniqueEmail = `${baseEmail}-${timestamp}@${tuteurData.entreprise.toLowerCase().replace(/\s/g, '')}.com`;
+    
     try {
-      // Try to find by email first
-      const response = await apiClient.get(`/tuteurs/email/${tuteurData.email}`);
-      return response.data;
-    } catch (error) {
-      if (error.response && error.response.status === 404) {
-        // If not found, create new tutor
-        const createResponse = await apiClient.post('/tuteurs', tuteurData);
-        return createResponse.data;
+      console.log(`Checking if tuteur exists with name: ${tuteurData.nom} ${tuteurData.prenom}`);
+      
+      // Try to find by exact email first
+      let existingTuteur = null;
+      try {
+        const exactEmailResponse = await apiClient.get(`/tuteurs/email/${tuteurData.email}`);
+        existingTuteur = exactEmailResponse.data;
+        console.log('Found existing tuteur by exact email:', existingTuteur);
+      } catch (emailError) {
+        if (emailError.response && emailError.response.status === 404) {
+          // Try to find by name and company if implemented
+          try {
+            // Alternative: try to find by name and company if implemented
+            // const response = await apiClient.get(`/tuteurs/search?nom=${tuteurData.nom}&prenom=${tuteurData.prenom}&entreprise=${tuteurData.entreprise}`);
+            // existingTuteur = response.data;
+            console.log('No tuteur found with this email, will create new');
+          } catch (error) {
+            console.log('No tuteur found with these criteria, will create new');
+          }
+        } else {
+          throw emailError; 
+        }
       }
+      
+      if (existingTuteur) {
+        return existingTuteur;
+      }
+      
+      // If not found, create new tutor with unique email
+      const dataToCreate = {
+        ...tuteurData,
+        email: uniqueEmail
+      };
+      
+      console.log('Creating new tuteur with data:', dataToCreate);
+      const createResponse = await apiClient.post('/tuteurs', dataToCreate);
+      return createResponse.data;
+    } catch (error) {
+      console.error('Error in findOrCreate tuteur:', error);
+      
+      // If creation failed due to duplicate email, try with an even more unique email
+      if (error.response && error.response.status === 500 && 
+          error.response.data && 
+          error.response.data.message &&
+          error.response.data.message.includes('Duplicate')) {
+        
+        console.log('Duplicate email detected, retrying with more unique email');
+        const veryUniqueEmail = `${baseEmail}-${timestamp}-${Math.random().toString(36).substring(2, 8)}@${tuteurData.entreprise.toLowerCase().replace(/\s/g, '')}.com`;
+        
+        const retryData = {
+          ...tuteurData,
+          email: veryUniqueEmail
+        };
+        
+        try {
+          const retryResponse = await apiClient.post('/tuteurs', retryData);
+          return retryResponse.data;
+        } catch (retryError) {
+          console.error('Retry failed:', retryError);
+          throw retryError;
+        }
+      }
+      
       throw error;
     }
   },
@@ -128,18 +422,92 @@ export const stagiaireApi = {
   // Create new intern
   create: (stagiaireData) => apiClient.post('/stagiaires', stagiaireData),
   
-  // Find or create an intern by email
-  findOrCreate: async (stagiaireData) => {
+  // Get by email or null if not found
+  getByEmail: async (email) => {
     try {
-      // Try to find by email first
-      const response = await apiClient.get(`/stagiaires/email/${stagiaireData.email}`);
+      const response = await apiClient.get(`/stagiaires/email/${email}`);
       return response.data;
     } catch (error) {
       if (error.response && error.response.status === 404) {
-        // If not found, create new intern
-        const createResponse = await apiClient.post('/stagiaires', stagiaireData);
-        return createResponse.data;
+        return null;
       }
+      throw error;
+    }
+  },
+  
+  // Find or create an intern by email with retry logic and unique email generation
+  findOrCreate: async (stagiaireData) => {
+    // Generate a more unique email with timestamp to avoid conflicts
+    const timestamp = new Date().getTime();
+    const baseEmail = `${stagiaireData.nom.toLowerCase()}.${
+      stagiaireData.prenom ? stagiaireData.prenom.toLowerCase() : 'x'
+    }`;
+    const uniqueEmail = `${baseEmail}-${timestamp}@example.com`;
+    
+    try {
+      console.log(`Checking if stagiaire exists with name: ${stagiaireData.nom} ${stagiaireData.prenom}`);
+      
+      // Try to find by exact email first
+      let existingStagiaire = null;
+      try {
+        const exactEmailResponse = await apiClient.get(`/stagiaires/email/${stagiaireData.email}`);
+        existingStagiaire = exactEmailResponse.data;
+        console.log('Found existing stagiaire by exact email:', existingStagiaire);
+      } catch (emailError) {
+        if (emailError.response && emailError.response.status === 404) {
+          // Try to find by name
+          try {
+            // Alternative: try to find by name if implemented on backend
+            // const nameResponse = await apiClient.get(`/stagiaires/search?nom=${stagiaireData.nom}&prenom=${stagiaireData.prenom}`);
+            // existingStagiaire = nameResponse.data;
+            console.log('No stagiaire found with this email, will create new');
+          } catch (nameError) {
+            console.log('No stagiaire found with this name, will create new');
+          }
+        } else {
+          throw emailError;
+        }
+      }
+      
+      if (existingStagiaire) {
+        return existingStagiaire;
+      }
+      
+      // If not found, create new intern with unique email
+      const dataToCreate = {
+        ...stagiaireData,
+        email: uniqueEmail
+      };
+      
+      console.log('Creating new stagiaire with data:', dataToCreate);
+      const createResponse = await apiClient.post('/stagiaires', dataToCreate);
+      return createResponse.data;
+    } catch (error) {
+      console.error('Error in findOrCreate stagiaire:', error);
+      
+      // If creation failed due to duplicate email, try with an even more unique email
+      if (error.response && error.response.status === 500 && 
+          error.response.data && 
+          error.response.data.message &&
+          error.response.data.message.includes('Duplicate')) {
+        
+        console.log('Duplicate email detected, retrying with more unique email');
+        const veryUniqueEmail = `${baseEmail}-${timestamp}-${Math.random().toString(36).substring(2, 8)}@example.com`;
+        
+        const retryData = {
+          ...stagiaireData,
+          email: veryUniqueEmail
+        };
+        
+        try {
+          const retryResponse = await apiClient.post('/stagiaires', retryData);
+          return retryResponse.data;
+        } catch (retryError) {
+          console.error('Retry failed:', retryError);
+          throw retryError;
+        }
+      }
+      
       throw error;
     }
   },
@@ -153,9 +521,31 @@ export const appreciationApi = {
   // Get appreciation by ID
   getById: (id) => apiClient.get(`/appreciations/${id}`),
   
+  // Create new appreciation
+  create: (appreciationData) => apiClient.post('/appreciations', appreciationData),
+  
   // Create new appreciation for a tutor
-  create: (tuteurId, appreciationData) => 
-    apiClient.post(`/appreciations/tuteur/${tuteurId}`, appreciationData),
+  createForTuteur: (tuteurId, appreciationData) => {
+    // Filtrer pour ne garder que les champs valides
+    const filteredData = {};
+    // Ajouter le tuteur
+    filteredData.tuteur = { id: tuteurId };
+    
+    return apiClient.post('/appreciations', filteredData);
+  },
+  
+  // Create new appreciation for a tutor using the explicit endpoint
+  createForTuteurExplicit: (tuteurId) => 
+    apiClient.post(`/appreciations/tuteur/${tuteurId}`, {}),
+  
+  // Create new appreciation with all relationships
+  createComplete: (tuteurId, periodeId) => {
+    const data = {
+      tuteur: { id: tuteurId },
+      periode: { id: periodeId }
+    };
+    return apiClient.post('/appreciations', data);
+  },
   
   // Update appreciation
   update: (id, appreciationData) => 
@@ -174,13 +564,27 @@ export const competencesApi = {
   findOrCreate: async (competenceTitle, note = 0) => {
     try {
       const response = await apiClient.get(`/competences/intitule/${competenceTitle}`);
+      // Si la compétence existe mais qu'on veut mettre à jour sa note
+      if (note > 0 && response.data.note !== note) {
+        // Mettre à jour la note de la compétence existante
+        try {
+          const updateResponse = await apiClient.put(`/competences/${response.data.id}`, {
+            ...response.data,
+            note: note
+          });
+          return updateResponse.data;
+        } catch (updateError) {
+          console.error(`Failed to update competence note for ${competenceTitle}:`, updateError);
+          return response.data;
+        }
+      }
       return response.data;
     } catch (error) {
       if (error.response && error.response.status === 404) {
-        // Create new competence if not found
+        // Create new competence if not found - with the exact note value
         const createResponse = await apiClient.post('/competences', {
           intitule: competenceTitle,
-          note: note
+          note: note // Utiliser la valeur exacte
         });
         return createResponse.data;
       }
@@ -221,526 +625,79 @@ export const evaluationApi = {
   // Get all evaluations
   getAll: () => apiClient.get('/evaluations'),
   
+  // Create new evaluation
+  create: (evaluationData) => apiClient.post('/evaluations', evaluationData),
+  
   // Create evaluation for appreciation and category
-  createForCategory: (appreciationId, categorieId, evaluationData) => 
-    apiClient.post(`/evaluations/appreciation/${appreciationId}/categorie/${categorieId}`, evaluationData),
+  createForCategory: (appreciationId, categorieId, evaluationData) => {
+    try {
+      return apiClient.post(`/evaluations/appreciation/${appreciationId}/categorie/${categorieId}`, evaluationData);
+    } catch (err) {
+      console.error('Error creating evaluation for category:', err);
+      // Essayer une autre approche si la première échoue
+      const fullData = {
+        ...evaluationData,
+        appreciation: { id: appreciationId },
+        categorie: { id: categorieId }
+      };
+      return apiClient.post('/evaluations', fullData);
+    }
+  },
   
   // Create evaluation for appreciation and competence
-  createForCompetence: (appreciationId, competenceId, evaluationData) => 
-    apiClient.post(`/evaluations/appreciation/${appreciationId}/competences/${competenceId}`, evaluationData),
-};
-
-// Submission service - handles the entire form submission process
-export const submissionService = {
-  submitFormData: async (formData, competencyEvaluations) => {
-    console.log('Starting form submission...');
-    
-    // Variables to track our progress
-    let stagiaire = null;
-    let tuteur = null;
-    let stage = null;
-    let appreciation = null;
-    let result = {
-      success: false,
-      error: null,
-      stageId: null,
-      appreciationId: null,
-      partial: false
+  createForCompetence: (appreciationId, competenceId, evaluationData) => {
+    try {
+      return apiClient.post(`/evaluations/appreciation/${appreciationId}/competences/${competenceId}`, evaluationData);
+    } catch (err) {
+      console.error('Error creating evaluation for competence:', err);
+      // Essayer une autre approche si la première échoue
+      const fullData = {
+        ...evaluationData,
+        appreciation: { id: appreciationId },
+        competences: { id: competenceId }
+      };
+      return apiClient.post('/evaluations', fullData);
+    }
+  },
+  
+  // Alternative method for creating evaluations directly
+  createDirect: (appreciationId, competenceId, categorieId, evaluationData) => {
+    const fullData = {
+      ...evaluationData,
+      appreciation: { id: appreciationId }
     };
     
+    if (competenceId) {
+      fullData.competences = { id: competenceId };
+    }
+    
+    if (categorieId) {
+      fullData.categorie = { id: categorieId };
+    }
+    
+    return apiClient.post('/evaluations', fullData);
+  }
+};
+
+// Submission Service - Centralized form submission logic
+export const submissionService = {
+  submitFormData: async (backendData) => {
+    console.log('Submitting complete form data via submissionService:', backendData);
     try {
-      // Step 1: Create or find stagiaire (intern)
-      try {
-        const studentNameParts = formData.studentName.trim().split(/\s+/);
-        const stagiaireData = {
-          nom: studentNameParts[0] || 'DefaultNom',
-          prenom: studentNameParts.length > 1 ? studentNameParts.slice(1).join(' ') : 'DefaultPrenom',
-          email: `${formData.studentName.trim().toLowerCase().replace(/\s+/g, '.')}@example.com`,
-          institution: 'Université Hassan II' // Default value
-        };
-        console.log('Stagiaire Data:', stagiaireData);
-        stagiaire = await stagiaireApi.findOrCreate(stagiaireData);
-        console.log('Stagiaire created/found successfully:', stagiaire);
+      // L'URL du endpoint est /stages/create-from-dto
+      const response = await apiClient.post('/stages/create-from-dto', backendData);
+      console.log('Form data submitted successfully:', response.data);
+      return { success: true, data: response.data };
       } catch (error) {
-        console.error('Error with stagiaire creation:', error);
-        throw new Error(`Erreur lors de la création du stagiaire: ${error.message}`);
-      }
-      
-      // Step 2: Create or find tuteur (tutor)
-      try {
-        const tutorNameParts = formData.tutorName.trim().split(/\s+/);
-        const tuteurData = {
-          nom: tutorNameParts[0] || 'DefaultNom',
-          prenom: tutorNameParts.length > 1 ? tutorNameParts.slice(1).join(' ') : 'DefaultPrenom',
-          email: `${formData.tutorName.trim().toLowerCase().replace(/\s+/g, '.')}@entreprise.com`,
-          entreprise: formData.companyName || 'DefaultEntreprise'
-        };
-        console.log('Tuteur Data:', tuteurData);
-        tuteur = await tuteurApi.findOrCreate(tuteurData);
-        console.log('Tuteur created/found successfully:', tuteur);
-      } catch (error) {
-        console.error('Error with tuteur creation:', error);
-        throw new Error(`Erreur lors de la création du tuteur: ${error.message}`);
-      }
-      
-      // Step 3: Create Stage (internship) - Critical step
-      try {
-        // Debug to make sure IDs are available
-        console.log('Stagiaire ID for stage creation:', stagiaire.id);
-        console.log('Tuteur ID for stage creation:', tuteur.id);
-        
-        // Get the data for stage creation
-        const description = formData.projectTheme ? formData.projectTheme.substring(0, 1000) : 'Description non fournie';
-        const objectif = formData.objectives ? formData.objectives.substring(0, 1000) : 'Objectif non fourni';
-        const entreprise = formData.companyName || 'Entreprise non fournie';
-        
-        // Prepare for stage creation with query parameters approach
-        console.log('Creating stage with query parameters approach');
-        try {
-          // Create the stage data object for the request body (without IDs)
-          const stageRequestData = {
-            description,
-            objectif,
-            entreprise
-          };
-          
-          console.log('Stage request data:', JSON.stringify(stageRequestData, null, 2));
-          
-          // The backend expects stagiaireId and tuteurId as query parameters
-          console.log('Calling create-with-ids endpoint with query parameters');
-          console.log('Stage data:', stageRequestData);
-          console.log('Stagiaire ID:', stagiaire.id);
-          console.log('Tuteur ID:', tuteur.id);
-          
-          // ULTRA-DIRECT APPROACH: No complex conversions, direct values
-          // This is the last resort approach that uses the minimum possible code
-          console.log('*** TRYING ULTRA-DIRECT APPROACH ***');
-          
-          // Force both IDs to be numeric with Number constructor
-          const rawStagiaireId = stagiaire.id;
-          const rawTuteurId = tuteur.id;
-          
-          // Use multiple forced conversions to ensure numeric values
-          const stagiaireIdFinal = Number(rawStagiaireId);
-          const tuteurIdFinal = Number(rawTuteurId);
-          
-          // Assert that we have valid positive numbers
-          console.assert(
-            !isNaN(stagiaireIdFinal) && stagiaireIdFinal > 0, 
-            'stagiaireIdFinal must be a positive number', 
-            {stagiaireIdFinal, rawStagiaireId}
-          );
-          
-          console.assert(
-            !isNaN(tuteurIdFinal) && tuteurIdFinal > 0, 
-            'tuteurIdFinal must be a positive number', 
-            {tuteurIdFinal, rawTuteurId}
-          );
-          
-          // Guaranteed numeric values
-          console.log('FINAL CONVERTED IDs:');
-          console.log('stagiaireId:', stagiaireIdFinal, '(type:', typeof stagiaireIdFinal, ')');
-          console.log('tuteurId:', tuteurIdFinal, '(type:', typeof tuteurIdFinal, ')');
-          
-          // Create the bare minimum data object
-          const minimalStageData = {
-            description: description || 'Description',
-            objectif: objectif || 'Objectif',
-            entreprise: entreprise || 'Entreprise'
-          };
-          
-          // Make the direct API call with forced numeric IDs
-          console.log('Making direct API call with forced numeric IDs');
-          
-          // EMERGENCY APPROACH: Use native fetch instead of axios
-          try {
-            console.log('*** EMERGENCY APPROACH: Using native fetch API ***');
-            
-            // Construct the simplest possible URL with numeric parameters
-            const emergencyUrl = `${API_URL}/stages/create-with-ids?stagiaireId=${stagiaireIdFinal}&tuteurId=${tuteurIdFinal}`;
-            console.log('Emergency URL:', emergencyUrl);
-            
-            // Use native fetch API with minimal options
-            const fetchResponse = await fetch(emergencyUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(minimalStageData)
-            });
-            
-            if (!fetchResponse.ok) {
-              const errorText = await fetchResponse.text();
-              console.error('Fetch API Error:', fetchResponse.status, errorText);
-              throw new Error(`Fetch failed with status: ${fetchResponse.status}. Details: ${errorText}`);
-            }
-            
-            const responseData = await fetchResponse.json();
-            console.log('Stage created successfully with fetch API:', responseData);
-            
-            // Set the response for further processing
-            const response = { data: responseData };
-            console.log('Stage created successfully with query params approach:', response.data);
-            stage = response.data;
-            console.log('Stage created successfully:', stage);
-          } catch (error) {
-            console.error('Error creating stage:', error);
-            if (error.response && error.response.data) {
-              console.error('Error response data:', error.response.data);
-              throw new Error(`Erreur lors de la création du stage: ${error.response.data.message || error.message}`);
-            } else {
-              throw error;
-            }
-          }
-        } catch (error) {
-          console.error('All stage creation approaches failed:', error);
-          throw new Error(`Erreur lors de la création du stage: ${error.message}`);
-        }
-        
-        // Update result with stage ID since we've created the basic record
-        result.stageId = stage.id;
-        result.partial = true;
-        result.success = true;
-      } catch (error) {
-        // Detailed logging for stage creation failure
-        console.error('Error creating stage:', error);
-        
-        if (error.response) {
-          console.error('Stage creation response data:', error.response.data);
-          console.error('Stage creation response status:', error.response.status);
-        }
-        
-        throw new Error(`Erreur lors de la création du stage: ${error.message}`);
-      }
-      
-      // Step 4: Create Periode (period) - OPTIONAL, continue if this fails
-      try {
-        // Check for dateDebut and dateFin fields first (new format)
-        const today = new Date().toISOString().split('T')[0]; // Default to today
-        let dateDebut = today;
-        let dateFin = today;
-        
-        // First try to use direct date fields if available
-        if (formData.dateDebut && formData.dateFin) {
-          console.log('Using direct date fields from form:');
-          console.log('Date début:', formData.dateDebut);
-          console.log('Date fin:', formData.dateFin);
-          
-          dateDebut = formData.dateDebut;
-          dateFin = formData.dateFin;
-        }
-        // Fall back to period string parsing for backward compatibility
-        else if (formData.period && formData.period.trim() !== '') {
-          console.log('Falling back to period string parsing. Original period input:', formData.period);
-          
-          // Split the period string by the separator " - "
-          const periodParts = formData.period.trim().split(' - ');
-          
-          console.log('Period parts after splitting:', periodParts);
-          
-          if (periodParts.length === 2) {
-            try {
-              // Extract and validate start date
-              const startDateStr = periodParts[0].trim();
-              // Check if it's in YYYY-MM-DD format
-              if (/^\d{4}-\d{2}-\d{2}$/.test(startDateStr)) {
-                console.log('Start date is in correct format:', startDateStr);
-                dateDebut = startDateStr;
-              } else {
-                // For other formats, parse with Date and convert to YYYY-MM-DD
-                const startDate = new Date(startDateStr);
-                if (!isNaN(startDate.getTime())) {
-                  dateDebut = startDate.toISOString().split('T')[0];
-                  console.log('Start date converted to:', dateDebut);
-                } else {
-                  console.error('Invalid start date format:', startDateStr);
-                }
-              }
-              
-              // Extract and validate end date
-              const endDateStr = periodParts[1].trim();
-              // Check if it's in YYYY-MM-DD format
-              if (/^\d{4}-\d{2}-\d{2}$/.test(endDateStr)) {
-                console.log('End date is in correct format:', endDateStr);
-                dateFin = endDateStr;
-              } else {
-                // For other formats, parse with Date and convert to YYYY-MM-DD
-                const endDate = new Date(endDateStr);
-                if (!isNaN(endDate.getTime())) {
-                  dateFin = endDate.toISOString().split('T')[0];
-                  console.log('End date converted to:', dateFin);
-                } else {
-                  console.error('Invalid end date format:', endDateStr);
-                }
-              }
-            } catch (e) {
-              console.error('Date parsing error:', e);
-            }
-          } else {
-            console.error('Period format incorrect. Expected "YYYY-MM-DD - YYYY-MM-DD", got:', formData.period);
-          }
-        }
-        
-        const periodeData = {
-          dateDebut,
-          dateFin
-        };
-        console.log('Periode Data:', periodeData);
-        await periodeApi.create(stage.id, periodeData);
-        console.log('Periode created successfully');
-      } catch (error) {
-        console.error('Error creating periode:', error);
-        console.warn('Continuing without periode...');
-        // Continue with the process even if this fails
-      }
-      
-      // ATTEMPT CREATING APPRECIATION AND OTHER ENTITIES
-      console.log('Proceeding with creating appreciation and other entities after successful stage creation');
-      
-      // Step 5: Check for existing appreciations FIRST to avoid duplicates
-      let existingAppreciation = null;
-      try {
-        console.log('Checking for existing appreciations for tuteur ID:', tuteur.id);
-        
-        // Convert to a guaranteed number
-        const tuteurIdNum = Number(tuteur.id);
-        
-        if (isNaN(tuteurIdNum) || tuteurIdNum <= 0) {
-          console.error('Invalid tuteur ID for appreciation check:', tuteur.id);
-        } else {
-          try {
-            // Check for existing appreciations
-            const getAppreciationsResponse = await fetch(`${API_URL}/appreciations/tuteur/${tuteurIdNum}`);
-            
-            if (getAppreciationsResponse.ok) {
-              const existingAppreciations = await getAppreciationsResponse.json();
-              console.log('Found existing appreciations:', existingAppreciations);
-              
-              if (existingAppreciations && existingAppreciations.length > 0) {
-                // Use the first existing appreciation
-                existingAppreciation = existingAppreciations[0];
-                console.log('Using existing appreciation:', existingAppreciation);
-              }
-            }
-          } catch (err) {
-            console.warn('Error checking for existing appreciations:', err);
-            // Continue even if this fails - we'll create a new one
-          }
-        }
-        
-        // Create new appreciation ONLY if none exists
-        if (!existingAppreciation) {
-          console.log('No existing appreciation found, creating new one');
-          
-          // Create appreciation data with mandatory description field
-          const appreciationData = {
-            description: formData.observations || 'Aucune observation pour le stage'
-          };
-          
-          // Try multiple approaches to create the appreciation
-          try {
-            console.log('Creating appreciation with direct fetch');
-            const appreciationUrl = `${API_URL}/appreciations/tuteur/${tuteurIdNum}`;
-            
-            // Make a SINGLE direct request for appreciation
-            const fetchAppreciationResponse = await fetch(appreciationUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(appreciationData)
-            });
-            
-            if (!fetchAppreciationResponse.ok) {
-              throw new Error(`Appreciation creation failed with status: ${fetchAppreciationResponse.status}`);
-            }
-            
-            appreciation = await fetchAppreciationResponse.json();
-            console.log('Appreciation created successfully:', appreciation);
-          } catch (error) {
-            console.error('Error creating appreciation:', error);
-            // Don't throw - continue without appreciation
-          }
-        } else {
-          // Use existing appreciation
-          appreciation = existingAppreciation;
-          console.log('Using existing appreciation:', appreciation.id);
-        }
-        
-        // Update result with appreciation ID if available
-        if (appreciation && appreciation.id) {
-          result.appreciationId = Number(appreciation.id);
-        }
-      } catch (error) {
-        console.error('Error in appreciation process:', error);
-        // Continue with partial success
-      }
-      
-      // Check if we should proceed with competency evaluations
-      if (!appreciation || !appreciation.id) {
-        console.warn('Skipping competency evaluations since appreciation creation failed');
-        
-        // If we got here, we at least created the Stage successfully
-        result.message = "Stage créé avec succès, mais les évaluations n'ont pas pu être créées.";
-        return {
-          success: true,
-          stageId: stage.id,
-          appreciationId: null,
-          message: "Stage créé avec succès, mais les évaluations n'ont pas pu être créées."
-        };
-      }
-      
-      // Step 6: Create categories, competences, and evaluations using modern async/await approach
-      try {
-        console.log('===== CREATING CATEGORIES AND EVALUATIONS =====');
-        
-        // Ensure we have a valid appreciation ID
-        const appreciationId = Number(appreciation.id);
-        if (isNaN(appreciationId) || appreciationId <= 0) {
-          throw new Error('Invalid appreciation ID for evaluations');
-        }
-        
-        // Define default categories with values
-        const categories = [
-          { intitule: 'Implication', valeur: formData.implication ? implicationLevelToValue(formData.implication) : 3 },
-          { intitule: 'Ouverture d\'esprit', valeur: formData.openness ? opennessLevelToValue(formData.openness) : 3 },
-          { intitule: 'Qualité du travail', valeur: formData.quality ? qualityLevelToValue(formData.quality) : 3 }
-        ];
-        
-        console.log('Categories to process:', JSON.stringify(categories, null, 2));
-        
-        // Process categories using async/await and fetch API
-        for (const categoryData of categories) {
-          console.log(`Processing category: ${categoryData.intitule}`);
-          
-          try {
-            // Use the categorieApi to find or create the category
-            const category = await categorieApi.findOrCreate(categoryData.intitule, categoryData.valeur);
-            console.log(`Category found/created: ${category.intitule} with ID: ${category.id}`);
-            
-            // Create evaluation linking category to appreciation
-            if (category.id && appreciationId) {
-              console.log(`Creating evaluation for category ${category.id} and appreciation ${appreciationId}`);
-              
-              const evaluationData = {
-                valeur: categoryData.valeur,
-                commentaire: `Évaluation pour ${categoryData.intitule}`
-              };
-              
-              const response = await evaluationApi.createForCategory(appreciationId, category.id, evaluationData);
-              console.log(`Evaluation created successfully with ID: ${response.data.id}`);
-            } else {
-              console.error('Cannot create evaluation: Missing category ID or appreciation ID');
-            }
-          } catch (error) {
-            console.error(`Error processing category ${categoryData.intitule}:`, error);
-            // Continue with next category even if this one fails
-          }
-        }
-        
-        // Process competences using async/await pattern
-        console.log('===== CREATING COMPETENCES AND EVALUATIONS =====');
-        
-        const competences = [
-          { intitule: 'Communication', note: 3.0 },
-          { intitule: 'Travail en équipe', note: 3.0 },
-          { intitule: 'Résolution de problèmes', note: 3.0 },
-          { intitule: 'Autonomie', note: 3.0 }
-        ];
-        
-        console.log('Competences to process:', JSON.stringify(competences, null, 2));
-        
-        // Process competences using async/await
-        for (const competenceData of competences) {
-          console.log(`Processing competence: ${competenceData.intitule}`);
-          
-          try {
-            // Use the competencesApi to find or create the competence
-            const competence = await competencesApi.findOrCreate(competenceData.intitule, competenceData.note);
-            console.log(`Competence found/created: ${competence.intitule} with ID: ${competence.id}`);
-            
-            // Create evaluation linking competence to appreciation
-            if (competence.id && appreciationId) {
-              console.log(`Creating evaluation for competence ${competence.id} and appreciation ${appreciationId}`);
-              
-              const evaluationData = {
-                valeur: competenceData.note,
-                commentaire: `Évaluation pour ${competenceData.intitule}`
-              };
-              
-              const response = await evaluationApi.createForCompetence(appreciationId, competence.id, evaluationData);
-              console.log(`Evaluation created successfully with ID: ${response.data.id}`);
-            } else {
-              console.error('Cannot create evaluation: Missing competence ID or appreciation ID');
-            }
-          } catch (error) {
-            console.error(`Error processing competence ${competenceData.intitule}:`, error);
-            // Continue with next competence even if this one fails
-          }
-        }
-        
-        console.log('===== ALL CATEGORIES AND COMPETENCES PROCESSED =====');
-      } catch (evalError) {
-        console.error('Error during evaluation creation process:', evalError);
-        console.warn('Continuing with partial success...');
-        // Still consider this a partial success since we created the stage and appreciation
-      }
-      
-      // All steps completed successfully
-      console.log('Form submission completed successfully');
+      console.error('Error submitting form data via submissionService:', error.response ? error.response.data : error.message);
       return {
-        success: true,
-        stageId: stage.id,
-        appreciationId: appreciation ? appreciation.id : null,
-        message: "Données enregistrées avec succès dans la base de données!"
-      };
-    } catch (error) {
-      console.error('Error in form submission process:', error);
-      return {
-        success: result.success,
-        partial: result.partial,
-        stageId: result.stageId,
-        appreciationId: result.appreciationId,
-        error: error.message,
-        message: "Erreur lors de l'enregistrement"
+        success: false,
+        message: error.response?.data?.message || error.message || 'Erreur inconnue lors de la soumission.',
+        error: error.response?.data || error
       };
     }
   }
 };
-
-// Helper functions to convert levels to numeric values
-function implicationLevelToValue(level) {
-  const levels = {
-    'Paresseux': 1,
-    'Le juste nécessaire': 2,
-    'Bonne': 3,
-    'Très forte': 4,
-    'Dépasse ses objectifs': 5
-  };
-  return levels[level] || 0;
-}
-
-function opennessLevelToValue(level) {
-  const levels = {
-    'Isolé(e) ou en opposition': 1,
-    'Renfermé(e) ou obtus': 2,
-    'Bonne': 3,
-    'Très bonne': 4,
-    'Excellente': 5
-  };
-  return levels[level] || 0;
-}
-
-function qualityLevelToValue(level) {
-  const levels = {
-    'Médiocre': 1,
-    'Acceptable': 2,
-    'Bonne': 3,
-    'Très bonne': 4,
-    'Très professionnelle': 5
-  };
-  return levels[level] || 0;
-}
 
 export default {
   stageApi,

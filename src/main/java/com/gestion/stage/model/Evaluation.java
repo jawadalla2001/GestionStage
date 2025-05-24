@@ -1,14 +1,17 @@
 package com.gestion.stage.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -23,21 +26,13 @@ public class Evaluation {
     @NotNull(message = "La valeur est obligatoire")
     private Double valeur;
 
-    @Column(length = 1000)
+    @Column(name = "categorie")
+    private String categorieStr;
+
+    @Column(name = "commentaire", length = 1024)
     private String commentaire;
 
-    @ManyToOne
-    @JoinColumn(name = "appreciation_id")
-    @JsonIgnoreProperties("evaluations")
-    private Appreciation appreciation;
-
-    @ManyToOne
-    @JoinColumn(name = "categorie_id")
-    @JsonIgnoreProperties("evaluations")
-    private Categorie categorie;
-
-    @ManyToOne
-    @JoinColumn(name = "competences_id")
-    @JsonIgnoreProperties("evaluations")
-    private Competences competences;
+    @OneToMany(mappedBy = "evaluation", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @JsonIgnore
+    private List<Appreciation> appreciations;
 }

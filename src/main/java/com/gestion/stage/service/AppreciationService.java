@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.gestion.stage.model.Appreciation;
+import com.gestion.stage.model.Competences;
+import com.gestion.stage.model.Evaluation;
+import com.gestion.stage.model.Periode;
 import com.gestion.stage.model.Tuteur;
 import com.gestion.stage.repository.AppreciationRepository;
 
@@ -30,6 +33,18 @@ public class AppreciationService {
 
     public List<Appreciation> getAppreciationsByTuteur(Tuteur tuteur) {
         return appreciationRepository.findByTuteur(tuteur);
+    }
+
+    public List<Appreciation> getAppreciationsByPeriode(Periode periode) {
+        return appreciationRepository.findByPeriode(periode);
+    }
+
+    public List<Appreciation> getAppreciationsByEvaluation(Evaluation evaluation) {
+        return appreciationRepository.findByEvaluation(evaluation);
+    }
+
+    public List<Appreciation> getAppreciationsByCompetences(Competences competences) {
+        return appreciationRepository.findByCompetences(competences);
     }
 
     public Appreciation saveAppreciation(Appreciation appreciation) {
